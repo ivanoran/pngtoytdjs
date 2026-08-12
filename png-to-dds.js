@@ -137,12 +137,15 @@ class PngToDdsConverter {
                 }
             }
             
-            alphaBits |= BigInt(bestIdx) << BigInt(i * 3);
+            // Используем целочисленное умножение для сдвига
+            const shift = BigInt(Math.floor(i * 3));
+            alphaBits |= BigInt(bestIdx) << shift;
         }
         
         // Записываем биты альфа индексов (6 байт)
         for (let i = 0; i < 6; i++) {
-            block[2 + i] = Number((alphaBits >> BigInt(i * 8)) & 0xFFn);
+            const shift = BigInt(Math.floor(i * 8));
+            block[2 + i] = Number((alphaBits >> shift) & 0xFFn);
         }
     }
     
@@ -303,8 +306,9 @@ class PngToDdsConverter {
         view.setUint32(offset, alignedWidth, true); // dwWidth
         offset += 4;
         
-        // dwPitchOrLinearSize
-        view.setUint32(offset, alignedWidth * alignedHeight / 2, true);
+        // dwPitchOrLinearSize - используем целочисленное деление
+        const linearSize = Math.floor(alignedWidth * alignedHeight / 2);
+        view.setUint32(offset, linearSize, true);
         offset += 4;
         
         view.setUint32(offset, 0, true); // dwDepth

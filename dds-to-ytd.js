@@ -152,14 +152,15 @@ class DdsToYtdConverter {
         // - 4 байта Reserved
         const textureHeaderSize = 64;
         
-        // Вычисляем общее смещение для данных DDS
+        // Вычисляем общее смещение для данных DDS с выравниванием по 8 байт
         const ytdHeaderSize = baseHeaderSize + dictFixedFields + 
                               nameHashListHeaderSize + nameHashListDataSize +
                               textureListHeaderSize + textureListDataSize;
         
-        const nameDataOffset = ytdHeaderSize;
-        const textureHeaderOffset = nameDataOffset + nameDataSize;
-        const ddsDataOffset = textureHeaderOffset + textureHeaderSize;
+        // Выравниваем все смещения по 8 байт для корректной работы pointers
+        const nameDataOffset = Math.ceil(ytdHeaderSize / 8) * 8;
+        const textureHeaderOffset = Math.ceil((nameDataOffset + namePaddedLength) / 8) * 8;
+        const ddsDataOffset = Math.ceil((textureHeaderOffset + textureHeaderSize) / 8) * 8;
         
         // Общий размер
         const totalSize = ddsDataOffset + textureDataSize;
@@ -195,7 +196,9 @@ class DdsToYtdConverter {
         
         // === ResourceSimpleList64_uint для TextureNameHashes ===
         // Pointer к данным (смещение от начала файла / 8)
-        const nameHashListPtr = nameDataOffset / 8;
+        // Выравниваем nameDataOffset по 8 байт
+        const alignedNameDataOffset = Math.ceil(nameDataOffset / 8) * 8;
+        const nameHashListPtr = alignedNameDataOffset / 8;
         view.setBigUint64(offset, BigInt(nameHashListPtr), true);
         offset += 8;
         
@@ -213,7 +216,8 @@ class DdsToYtdConverter {
         
         // === ResourcePointerList64<Texture> для Textures ===
         // Pointer к данным (смещение от начала файла / 8)
-        const textureListPtr = textureHeaderOffset / 8;
+        const alignedTextureHeaderOffset = Math.ceil(textureHeaderOffset / 8) * 8;
+        const textureListPtr = alignedTextureHeaderOffset / 8;
         view.setBigUint64(offset, BigInt(textureListPtr), true);
         offset += 8;
         
@@ -226,7 +230,7 @@ class DdsToYtdConverter {
         offset += 4;
         
         // Pointer на текстуру (смещение от начала файла / 8)
-        view.setBigUint64(offset, BigInt(textureHeaderOffset / 8), true);
+        view.setBigUint64(offset, BigInt(alignedTextureHeaderOffset / 8), true);
         offset += 8;
         
         // === Имя текстуры ===
@@ -237,6 +241,10 @@ class DdsToYtdConverter {
         while (offset % 4 !== 0) {
             bytes[offset++] = 0;
         }
+        // Дополнительное padding для выравнивания по 8
+        while (offset % 8 !== 0) {
+            bytes[offset++] = 0;
+        }
         
         // === Заголовок текстуры (Texture) ===
         const textureStartOffset = offset;
@@ -245,7 +253,9 @@ class DdsToYtdConverter {
         view.setBigUint64(offset, 0n, true); // VTable
         offset += 8;
         
-        view.setBigUint64(offset, BigInt(ddsDataOffset - textureStartOffset), true); // BlockLength
+        // BlockLength - вычисляем как смещение до DDS данных минус начало текстуры
+        const alignedDdsDataOffset = Math.ceil((textureStartOffset + textureHeaderSize) / 8) * 8;
+        view.setBigUint64(offset, BigInt(alignedDdsDataOffset - textureStartOffset), true);
         offset += 8;
         
         // Unknown_10h
@@ -281,12 +291,12 @@ class DdsToYtdConverter {
         offset += 4;
         
         // Name pointer (inline для коротких имен, используем pointer)
-        const namePtr = nameDataOffset / 8;
+        const namePtr = alignedNameDataOffset / 8;
         view.setBigUint64(offset, BigInt(namePtr), true);
         offset += 8;
         
         // Data pointer (смещение к DDS данным / 8)
-        const dataPtr = ddsDataOffset / 8;
+        const dataPtr = alignedDdsDataOffset / 8;
         view.setBigUint64(offset, BigInt(dataPtr), true);
         offset += 8;
         
@@ -297,6 +307,11 @@ class DdsToYtdConverter {
         // Reserved
         view.setUint32(offset, 0x00000000, true);
         offset += 4;
+        
+        // Выравниваем offset по 8 перед записью DDS данных
+        while (offset % 8 !== 0) {
+            bytes[offset++] = 0;
+        }
         
         // === DDS данные ===
         // Копируем DDS данные (пропуская 128 байт заголовка DDS, так как мы храним только pixel data)
